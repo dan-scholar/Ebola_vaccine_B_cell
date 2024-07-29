@@ -170,6 +170,142 @@ sd2_star_HTSeq_autosomes = calcNormFactors(sd2_star_HTSeq_autosomes, method = "T
 
 
 
+##### 1) Filter transcripts ####
+# Synopsis 
+# Genes with very low counts should be removed prior to analysis.
+
+
+dim(sd2_star_HTSeq_autosomes)
+#[1] 55507   126
+
+#mean(sd2_star_HTSeq_autosomes$samples$lib.size)
+## 22301087
+# So >2 cpm in the average library would be >20 counts 
+
+# # Filter by some genes expression parameter, debatable
+
+table(sd2_star_HTSeq_autosomes$samples$Visit)
+
+# D1 D11 D36 D64 D92 
+# 42  42  13  15  14 
+# so smallest group size is 13
+# 9/13 is 0.69, so if detected (>2cpm) in 9/13 then >60% of that group
+
+keep <- rowSums(cpm(sd2_star_HTSeq_autosomes)>2, na.rm=T) >= 9 # smallest group size is  
+table(keep)
+# FALSE  TRUE 
+# 42255 13252
+sd2_star_HTSeq_autosomes.filtered <- sd2_star_HTSeq_autosomes[keep,]
+dim(sd2_star_HTSeq_autosomes.filtered)
+#[1] 13252   126
+
+sd2_star_HTSeq_autosomes.filtered$Gene <- sd2_star_HTSeq_autosomes.filtered$Gene[rownames(sd2_star_HTSeq_autosomes.filtered$counts),]
+
+sd2_star_HTSeq_autosomes.filtered$genes <- sd2_star_HTSeq_autosomes.filtered$Gene
+sd2_star_HTSeq_autosomes.filtered$genes$GeneID <- sd2_star_HTSeq_autosomes.filtered$Gene$gene_name
+
+
+keep3 <- rowSums(cpm(sd2_star_HTSeq_autosomes)>2, na.rm=T) >= ncol(sd2_star_HTSeq_autosomes)/5
+sd2_star_HTSeq_autosomes.filtered3 <- sd2_star_HTSeq_autosomes[keep3,] # in 20% of the total cohort
+dim(sd2_star_HTSeq_autosomes.filtered3)
+#[1] 12529   126
+
+
+sd2_star_HTSeq_autosomes.filtered3$Gene <- sd2_star_HTSeq_autosomes.filtered3$Gene[rownames(sd2_star_HTSeq_autosomes.filtered3$counts),]
+
+sd2_star_HTSeq_autosomes.filtered3$genes <- sd2_star_HTSeq_autosomes.filtered3$Gene
+sd2_star_HTSeq_autosomes.filtered3$genes$GeneID <- sd2_star_HTSeq_autosomes.filtered3$Gene$gene_name
+
+
+# # Filter 1 ----
+sd2_star_HTSeq_autosomes.filtered$samples$lib.size <- colSums(sd2_star_HTSeq_autosomes.filtered$counts)
+sd2_star_HTSeq_autosomes.filtered <- calcNormFactors(sd2_star_HTSeq_autosomes.filtered)
+
+
+# Remove Mt_rRNA and globins
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins <- sd2_star_HTSeq_autosomes.filtered[-grep("Mt_|rRNA", sd2_star_HTSeq_autosomes.filtered$Gene$gene_biotype),]
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$Gene <- sd2_star_HTSeq_autosomes.filtered$Gene[-grep("Mt_|rRNA", sd2_star_HTSeq_autosomes.filtered$Gene$gene_biotype),]
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins <- sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins[-grep("HBB|HBA1|HBA2|HBG1|HBG2", sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$Gene$gene_name),]
+
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$Gene <- sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$Gene[-grep("HBB|HBA1|HBA2|HBG1|HBG2", sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$Gene$gene_name),]
+
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$lib.size <- colSums(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$counts)
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins <- calcNormFactors(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins)
+
+
+dim(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins)
+# 13244   126
+
+
+
+## Limma ----
+
+# 1) Filter 1 ----
+
+#dim(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins)
+## 13244   126
+
+#head(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples)
+#table (sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Visit)
+# D1 D11 D36 D64 D92 
+# 42  42  13  15  14
+
+
+
+#  group is determines which visit they have D36, D64 or D96
+# Note — two individuals received only placebo (0.9% saline) and one only had prime vaccine
+table(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Vaccines)
+
+# Ad26        Ad26.MVA Placebo.Placebo 
+# 3             117               6 
+
+
+group_1 <- sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number[grep("D36",sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Visit )]
+group_2 <- sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number[grep("D64",sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Visit )]
+group_3 <- sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number[grep("D92",sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Visit )]
+# 
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$group[sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number %in% group_1] <- 1
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$group <- as.character(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$group)
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$group[sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number %in% group_2] <-2
+
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$group[sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number %in% group_3] <-3
+
+
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design_group = model.matrix(~ -1 + paste(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Visit, sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$group, sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Vaccines, sep="_") )
+
+colnames(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design_group) <- gsub("paste(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Visit, sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$group, sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$Vaccines, sep = \"_\")", "" ,colnames(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design_group), fixed=T)
+
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins.voom <- voom(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins, sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design_group , plot=FALSE)
+
+# confit.filtered.grp.S.voom <- duplicateCorrelation(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins.voom, sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design_group, block=sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number)
+
+
+sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins.voom$consensus.correlation <- 0.3620738 
+
+colnames(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design)
+
+
+
+vfit_grp <- lmFit(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins.voom, sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design, correlation=sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins.voom$consensus.correlation, block = sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$samples$GEO_participant_number)
+
+
+pre_vs_post_group_contrast <- makeContrasts(D1_D11_all_groups = (D11_1_Ad26.MVA + D11_2_Ad26.MVA + D11_3_Ad26.MVA + D11_1_Ad26 )/4 - ( D1_1_Ad26.MVA + D1_2_Ad26.MVA + D1_3_Ad26.MVA + D1_1_Ad26 )/4, D1_D7_boost_all_groups = (D36_1_Ad26.MVA + D64_2_Ad26.MVA + D92_3_Ad26.MVA)/3 - (D1_1_Ad26.MVA + D1_2_Ad26.MVA +D1_3_Ad26.MVA)/3, D1_D36 = (D36_1_Ad26.MVA)/1  - ( D1_1_Ad26.MVA)/1, D1_D64 = D64_2_Ad26.MVA  - D1_2_Ad26.MVA, D1_D92 = D92_3_Ad26.MVA  - D1_3_Ad26.MVA, D11_vs_D7_boost = (D36_1_Ad26.MVA + D64_2_Ad26.MVA + D92_3_Ad26.MVA)/3 - (D11_1_Ad26.MVA + D11_2_Ad26.MVA + D11_3_Ad26.MVA)/3, levels=sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins$design )
+
+vfit_grp <- contrasts.fit(vfit_grp, contrasts=pre_vs_post_group_contrast)
+efit_grp <- eBayes(vfit_grp)
+
+dt_grp <- decideTests(efit_grp)
+
+summary(dt_grp)
+
+# D1_D11_all_groups D1_D7_boost_all_groups D1_D36 D1_D64 D1_D92 D11_vs_D7_boost
+# Down                   0                     90      2      3      0             818
+# NotSig             13219                  12802  13126  13106  13169           11257
+# Up                    25                    352    116    135     75            1169
+
+#   write.table(topTable(efit_grp, coef=i, sort.by="P", adjust='fdr', number=nrow(sd2_star_HTSeq_autosomes.filtered.remove.rRNA.globins.voom)), paste0("/output/limma/filter1/EBOVAC", i,"_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_", Sys.Date(),".txt"), col.names=TRUE,row.names=FALSE,sep="\t",quote=FALSE)
+# }
+
 
 
 
