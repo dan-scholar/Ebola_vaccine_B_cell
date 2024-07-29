@@ -19,6 +19,9 @@ library(readr)
 packageVersion("readr")
 [1] ‘2.1.5’
 
+library(limma)
+# packageVersion("limma")
+# [1] ‘3.60.4’
 
 
 #### i) Compile count data #### 
