@@ -1,8 +1,27 @@
-#### i) Compile count data #### 
 
 library("here")
 # packageVersion("here")
 # [1] ‘1.0.1’
+library("edgeR")
+# packageVersion("edgeR")
+# [1] ‘4.2.1’
+library("ggplot2")
+# packageVersion("ggplot2")
+# [1] ‘3.5.1’
+library(NOISeq)
+packageVersion("NOISeq")
+
+library(dplyr)
+packageVersion("dplyr")
+[1] ‘1.1.4’
+
+library(readr)
+packageVersion("readr")
+[1] ‘2.1.5’
+
+
+
+#### i) Compile count data #### 
 
 
 
@@ -81,6 +100,76 @@ dim(data.all)
 # write data to file
 
 # write.csv(data.all, file = paste0(basedir,"/count/EBOVAC_RNA-seq_STAR_HTSeq_", Sys.Date(), ".csv"))
+
+
+
+#### Prelude and QC for data 
+
+#### 0b) SEQUENCING DATA LOADING & CLEANING #####
+here::here("analysis_version_1.0")
+basedir <- here::here("/count/EBOVAC_RNA-seq_STAR_HTSeq_")
+
+sd <- DGEList(counts=data.all) # # count data from STAR HTSeq #
+
+dim(sd)
+# 58395   126
+#hist(sd$samples$lib.size)
+#sd$samples[order(sd$samples$lib.size, decreasing = T),]
+mean(apply(sd$counts, 2, sum))
+# 23142560
+
+sd$samples$lib.size <- colSums(sd$counts)
+sd <- calcNormFactors(sd, method="TMM")
+
+sd$samples$ID<- substr(rownames(sd$samples), 8,13)
+
+https://github.com/dan-scholar/Ebola_vaccine_B_cell/blob/main/metadata_for_Github.csv
+sample_info <- read.csv("metadata_for_Github.csv")
+
+sample_info$ID  <- substring(sample_info$WTCHG_ID,7)
+sd$samples <- merge(sd$samples,sample_info, by.x ="ID", by.y= "ID")
+
+rownames(sd$samples) <- sd$samples$ID
+
+
+gene_metadata1 = readRDS("gene_metadata.GRCh38.p12.rds")
+
+gene_metadata1 = dplyr::select(gene_metadata1, gene_id, gene_name, gene_biotype, chromosome_name) %>% unique() #subselection of the metaData (geneIDs, geneNames, biotype)
+rownames(gene_metadata1)= gene_metadata1$gene_id
+
+# #### 0c) CLEAN RAW COUNT TABLE ####
+
+gene_metadata_STAR_HTSeq = gene_metadata1[  rownames(sd), ]
+stopifnot(identical(rownames(sd), rownames(gene_metadata_STAR_HTSeq)))
+dim(gene_metadata_STAR_HTSeq)
+# 58395     4
+dim(sd)
+#58395   126
+
+gend_star_HTSeq = gene_metadata_STAR_HTSeq$gene_id[ -which(gene_metadata_STAR_HTSeq$chromosome_name == "X" | gene_metadata_STAR_HTSeq$chromosome_name == "Y")] # remove sex chromosomes
+
+gend_gene_metadata_STAR_HTSeq = gene_metadata_STAR_HTSeq[ -which(gene_metadata_STAR_HTSeq$chromosome_name == "X" | gene_metadata_STAR_HTSeq$chromosome_name == "Y"),] 
+
+sd2_star_HTSeq_autosomes = sd[ gend_star_HTSeq, ] #select autosomes
+
+dim(sd2_star_HTSeq_autosomes) # 55507   252
+
+stopifnot(identical(rownames(sd2_star_HTSeq_autosomes), rownames(gend_gene_metadata_STAR_HTSeq)))
+
+sd2_star_HTSeq_autosomes$Gene <- gend_gene_metadata_STAR_HTSeq
+
+
+
+sd2_star_HTSeq_autosomes$samples$lib.size = colSums(sd2_star_HTSeq_autosomes$counts)# re-compute library size
+
+mean(sd2_star_HTSeq_autosomes$samples$lib.size)
+# 22301087 
+# # normalization - effective library size - sample specific normalization factors
+sd2_star_HTSeq_autosomes = calcNormFactors(sd2_star_HTSeq_autosomes, method = "TMM") #
+
+
+
+
 
 
 
