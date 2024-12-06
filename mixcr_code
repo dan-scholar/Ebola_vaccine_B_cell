@@ -1,0 +1,37 @@
+#!/bin/sh
+
+for var in 201106 295177 251136 202118	203130	204142	205154	206166	207178	208190	209107	210119	211131	212143	213155	214167	215179	216191	217108	218120	219132	220144	221156	222168	223180	224192	225109	226121	227133	228145	229157	230169	231181	232193	233110	234122	235134	236146	237158	238170	239182	240194	241111	242123	243135	244147	245159	246171	247183	248195	249112	250124	252148	253160	254172	255184	256196	257101	257196	258113	258184	259125	259172	260137	260160	261148	261149	262136	262161	263124	263173	264112	264185	265102	265195	266114	266183	267126	267171	268138	268159	269147	269150	270135	270162	271123	271174	272111	272186	273103	273194	274115	274182	275127	275170	276139	276158	277146	277151	278134	278163	279122	279175	280110	280187	281104	281193	282116	282181	283128	283169	284140	284157	285145	285152	286133	286164	287176	288188	289105	290117	291129	292141	293153	294165	296189
+
+
+
+do
+
+
+## export chains
+
+java -Xmx10g -Xms1g -jar /usr/local/bin/mixcr-2.1.12/mixcr.jar  exportClones \
+-f \
+-c IGH  \
+-p full \
+-readIds .../VDJ_alignment/WTCHG_$var'_combined_2_alignmentsRescued2.index' \
+.../VDJ_alignment/WTCHG_$var'_combined_2_alignmentsRescued2.clns' \
+.../EBOVAC/VDJ_alignment/Clones/WTCHG_$var'_combined_2_clonesRescued2_IGH.txt'
+	
+java -Xmx10g -Xms1g -jar /usr/local/bin/mixcr-2.1.12/mixcr.jar  exportClones \
+-f \
+-c IGK  \
+-p full \
+-readIds .../VDJ_alignment/WTCHG_$var'_combined_2_alignmentsRescued2.index' \
+.../VDJ_alignment/WTCHG_$var'_combined_2_alignmentsRescued2.clns' \
+.../VDJ_alignment/Clones/WTCHG_$var'_combined_2_clonesRescued2_IGK.txt'
+
+java -Xmx10g -Xms1g -jar /usr/local/bin/mixcr-2.1.12/mixcr.jar  exportClones \
+-f \
+-c IGL  \
+-p full \
+-readIds .../VDJ_alignment/WTCHG_$var'_combined_2_alignmentsRescued2.index' \
+.../VDJ_alignment/WTCHG_$var'_combined_2_alignmentsRescued2.clns' \
+.../VDJ_alignment/Clones/WTCHG_$var'_combined_2_clonesRescued2_IGL.txt'
+
+
+done
