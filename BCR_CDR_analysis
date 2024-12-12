@@ -1,0 +1,428 @@
+library(plyr)
+library(reshape)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(Biostrings)
+library(gdata)
+library(stringr)
+library(gridExtra)
+library(ggpubr)
+library(tidyverse)
+library(stringdist)
+require(ggseqlogo)
+library(reshape2)
+
+# Extract and collate best hits information from mixcr ----
+
+# IGH
+for (i in list.files('...VDJ_alignment/Clones/', pattern="*_H.txt")) {
+assign(gsub("-", ".", paste0("IGH",substr(i, 7,12))), as.data.frame(ddply (read.table(paste0("...VDJ_alignment/Clones/", i) , sep = "\t", header=T), "bestVHit", summarize, count= sum(cloneCount))))
+}
+
+BCR_combined_H <- Reduce(function(...) merge(..., all=TRUE, by=c("bestVHit")), mget(ls()[grep ("IGH", ls())]) )
+colnames(BCR_combined_H) <- c("bestVHit", substr(ls()[grep ("IGH", ls())], 4,11))
+
+# IGL
+for (i in list.files('...VDJ_alignment/Clones/', pattern="*_L.txt")) {
+  assign(gsub("-", ".", paste0("IGL",substr(i, 7,12))), as.data.frame(ddply (read.table(paste0("...VDJ_alignment/Clones/", i) , sep = "\t", header=T), "bestVHit", summarize, count= sum(cloneCount))))
+}
+
+BCR_combined_L <- Reduce(function(...) merge(..., all=TRUE, by=c("bestVHit")), mget(ls()[grep ("IGL", ls())]) )
+colnames(BCR_combined_L) <- c("bestVHit", substr(ls()[grep ("IGL", ls())], 4,11))
+
+# IGK
+for (i in list.files('...VDJ_alignment/Clones/', pattern="*_K.txt")) {
+  assign(gsub("-", ".", paste0("IGK",substr(i, 7,12))), as.data.frame(ddply (read.table(paste0("...VDJ_alignment/Clones/", i) , sep = "\t", header=T), "bestVHit", summarize, count= sum(cloneCount))))
+}
+
+BCR_combined_K <- Reduce(function(...) merge(..., all=TRUE, by=c("bestVHit")), mget(ls()[grep ("IGK", ls())]) )
+colnames(BCR_combined_K) <- c("bestVHit", substr(ls()[grep ("IGK", ls())], 4,11))
+
+
+BCR_combined_IG <- rbind(BCR_combined_H,BCR_combined_K,BCR_combined_L)
+
+BCR_combined_IG_t <-t(BCR_combined_IG)
+colnames(BCR_combined_IG_t)<- BCR_combined_IG$bestVHit
+BCR_combined_IGs <- as.data.frame(BCR_combined_IG_t[-1,])
+save(BCR_combined_IGs,file="...VDJ_alignment/Clones/combined_best_chains.R")
+
+load("/mnt/sdb/EBOVAC/VDJ_alignment/Clones/combined_best_chains.R")
+head(BCR_combined_IGs)
+
+# Include metadata
+
+
+url <- "https://raw.githubusercontent.com/dan-scholar/Ebola_vaccine_B_cell/refs/heads/main/metadata_for_Github.csv"
+
+# Read the CSV directly from the URL
+sample_info <- read.csv(url)
+head(sample_info)
+
+#  group is determines which visit they have D36, D64 or D96
+# Note — two individuals received only placebo (0.9% saline) and one only had prime vaccine
+table(sample_info$Vaccines)
+
+group_1 <-sample_info$GEO_participant_number[grep("D36",sample_info$Visit )]
+group_2 <- sample_info$GEO_participant_number[grep("D64",sample_info$Visit )]
+group_3 <- sample_info$GEO_participant_number[grep("D92",sample_info$Visit )]
+
+sample_info$group[sample_info$GEO_participant_number %in% group_1] <- 1
+sample_info$group[sample_info$GEO_participant_number %in% group_2] <-2 
+sample_info$group[sample_info$GEO_participant_number %in% group_3] <-3
+
+
+BCR_combined_IGs_n <- as.data.frame(lapply(BCR_combined_IGs, function(x) as.numeric(as.character(x)))) # make columns numeric
+# head(BCR_combined_IGs_n)
+rownames(BCR_combined_IGs_n) <- paste0("WTCHG_", rownames(BCR_combined_IGs))
+
+BCR_combined_IGs_p <- BCR_combined_IGs_n
+
+for(j in colnames(BCR_combined_IGs_n)){
+  for( i in rownames(BCR_combined_IGs_n)) {
+    BCR_combined_IGs_p[i,j] <- BCR_combined_IGs_n[i,j]/rowSums (BCR_combined_IGs_n[i,grep(substr(j, 1,3), colnames(BCR_combined_IGs_n))], na.rm = TRUE)
+  }
+}
+
+BCR_combined_IGs_f <- BCR_combined_IGs_p[sample_info$WTCHG_ID,] # reorder to match metadata
+
+identical(rownames(BCR_combined_IGs_f),sample_info$WTCHG_ID)
+
+dim(BCR_combined_IGs_f)
+# [1] 126 149
+
+rownames(BCR_combined_IGs_f) <-sample_info$WTCHG_ID
+
+BCR_combined_IGs_f[,"ID"] <- sample_info$GEO_participant_number
+BCR_combined_IGs_f[,"Visit"] <- sample_info$Visit
+head(BCR_combined_IGs_f)
+
+
+
+BCR_combined_IGs_f[,"Group"] <- as.factor(sample_info$group)
+
+BCR_combined_IGs_f[,"Vaccines"] <- as.factor(sample_info$Vaccines)
+
+BCR_combined_IGs_f2 <- BCR_combined_IGs_f[BCR_combined_IGs_f[,"Vaccines"] != "Placebo.Placebo",] # removed the placebo groups
+
+BCR_combined_IGs_f3 <- BCR_combined_IGs_f2[!(BCR_combined_IGs_f2$Vaccines == "Ad26" & BCR_combined_IGs_f2$Visit == "D36" ),] 
+
+# removed the placebo individuals and sample taken from the individual who did not receive a booster vaccine
+
+## table(BCR_combined_IGs_f3$Vaccines)
+#               Ad26        Ad26.MVA Placebo.Placebo 
+# 0               2             117               0 
+
+BCR_combined_IGs_mp <- reshape2::melt(BCR_combined_IGs_f3, id=c( "ID", "Visit", "Group", "Vaccines" )) # melt for ggplot
+
+#hist(BCR_combined_IGs_mp$value)
+
+head(BCR_combined_IGs_mp)
+
+for (i in c("IGH", "IGK", "IGL")) {
+  
+  p1 <- ggplot (BCR_combined_IGs_mp[intersect(grep(i, BCR_combined_IGs_mp$variable)  , grep("1", BCR_combined_IGs_mp$Group)),], aes(variable, value, fill=Visit)) + geom_bar(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="mean") + theme(axis.text.x =element_text(angle = 90, size = 8, vjust = 0.5 )) +
+    geom_pointrange(stat = "summary", na.rm = TRUE,
+                    fun.ymin = function(z) {quantile(z,0.25)},
+                    fun.ymax = function(z) {quantile(z,0.75)},
+                    fun.y = median, fatten = 0.5,size =0.3, position = position_dodge(width = 0.7)) +
+    labs(x= i, y="Proportion", subtitle="Group 1: ")
+  
+  p2 <- ggplot (BCR_combined_IGs_mp[intersect(grep(i, BCR_combined_IGs_mp$variable)  , grep("2", BCR_combined_IGs_mp$Group)),], aes(variable, value, fill=Visit)) + geom_bar(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="mean") + theme(axis.text.x =element_text(angle = 90, size = 8, vjust = 0.5 )) +
+    geom_pointrange(stat = "summary", na.rm = TRUE,
+                    fun.ymin = function(z) {quantile(z,0.25)},
+                    fun.ymax = function(z) {quantile(z,0.75)},
+                    fun.y = median, fatten = 0.5,size =0.3, position = position_dodge(width = 0.7)) +
+    labs(x= i, y="Proportion", subtitle="Group 2: ")
+  
+  p3 <- ggplot (BCR_combined_IGs_mp[intersect(grep(i, BCR_combined_IGs_mp$variable)  , grep("3", BCR_combined_IGs_mp$Group)),], aes(variable, value, fill=Visit)) + geom_bar(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="mean") + theme(axis.text.x =element_text(angle = 90, size = 8, vjust = 0.5 )) +
+    geom_pointrange(stat = "summary", na.rm = TRUE,
+                    fun.ymin = function(z) {quantile(z,0.25)},
+                    fun.ymax = function(z) {quantile(z,0.75)},
+                    fun.y = median, fatten = 0.5,size =0.3, position = position_dodge(width = 0.7)) +
+    labs(x= i, y="Proportion", subtitle="Group 3: ")
+  
+  png(paste0("/EBOVAC_d11_mixcr_",i,"_by_group_",Sys.Date(),".png"))
+  grid.arrange(p1,p2,p3, nrow=3)
+  dev.off()
+  
+}
+# VDJTools ---- 
+
+# https://vdjtools-doc.readthedocs.io/en/master/
+
+# metadata
+
+metat <- sample_info
+
+metat[,"X.file.name"] <- paste0("/.../Clones/", metat$Sample,".txt" ) # path to mixcr clones
+
+head(metat)
+
+write.table(metat[,c("X.file.name", "GEO_participant_number", "Visit", "group", "Sex", "Vaccines")],paste0("/.../metadata_vdjtools_EBOVAC_",Sys.Date() ,"_IGH.txt"), quote = F, row.names = F, sep = "\t" )
+
+write.table(lapply(metat[,c("X.file.name", "GEO_participant_number", "Visit", "group", "Sex", "Vaccines")], function(x) c(gsub("IGH", "IGL", x))),paste0("/.../metadata_vdjtools_EBOVAC_",Sys.Date() ,"_IGL.txt"), quote = F, row.names = F, sep = "\t" )
+
+write.table(lapply(metat[,c("X.file.name", "GEO_participant_number", "Visit", "group", "Sex", "Vaccines")], function(x) c(gsub("IGH", "IGK", x))),paste0("/.../metadata_vdjtools_EBOVAC_",Sys.Date() ,"_IGK.txt"), quote = F, row.names = F, sep = "\t" )
+
+
+## bash script ----
+
+# Can use system() function to run in terminal rather than in R ...
+
+#### Convert mixcr samples ----
+
+
+system("cd /.../IGH/
+  
+  java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar Convert -S mixcr -m /.../metadata_vdjtools_EBOVAC_2020-01-29_IGH.txt conv_IGH
+
+cd /.../IGK
+
+java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar Convert -S mixcr -m .../metadata_vdjtools_EBOVAC_2020-01-30_IGK.txt conv_IGK
+
+cd /.../IGL
+
+java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar Convert -S mixcr -m /.../metadata_vdjtools_EBOVAC_2020-01-30_IGL.txt conv_IGL" )
+
+
+
+system("cd /.../IGL/ \
+java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar CalcBasicStats -m /.../IGL/metadata.txt /.../IGL/basic_stats/"
+)
+
+
+
+#### vdjtools basic stats  ----
+
+
+# basic stats 
+
+
+system("cd /.../IGH/
+       
+       java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar Convert -S mixcr -m /.../metadata_vdjtools_EBOVAC_2020-01-29_IGH.txt conv_IGH
+       
+       cd /.../IGK
+       
+       java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar Convert -S mixcr -m /.../metadata_vdjtools_EBOVAC_2020-01-30_IGK.txt conv_IGK
+       
+       cd /.../IGL
+       
+       java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar Convert -S mixcr -m .../metadata_vdjtools_EBOVAC_2020-01-30_IGL.txt conv_IGL" )
+
+
+
+system("cd /.../IGL/ \
+       java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar CalcBasicStats -m /.../IGL/metadata.txt /.../IGL/basic_stats/"
+)
+
+
+system("cd /.../IGH/
+
+java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar CalcBasicStats -m /.../IGH/metadata.txt /.../IGH/basic_stats/
+       
+# IGK
+       
+ cd /mnt/sdb/EBOVAC/VDJ_alignment/vdjtools/IGK/
+       
+java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar CalcBasicStats -m /.../IGK/metadata.txt /.../IGK/basic_stats/
+       
+# IGL
+       
+cd /mnt/sdb/EBOVAC/VDJ_alignment/vdjtools/IGL/
+       
+java -Xmx16G -jar /usr/local/bin/vdjtools/target/vdjtools-1.1.10.jar CalcBasicStats -m /.../IGL/metadata.txt /.../IGL/basic_stats/"
+       
+)
+
+### Plot basic statistics ----
+# ggplot 
+# count
+
+## IGH ----
+IGH_basic_stat <- read.table("/.../basicstats.txt", header=T)
+
+# table(IGH_basic_stat$Vaccines)
+# Ad26        Ad26.MVA Placebo.Placebo 
+# 3             117               6 
+
+IGH_basic_stat2 <- IGH_basic_stat[IGH_basic_stat$Vaccines != "Placebo.Placebo" ,]
+
+IGH_basic_stat3 <- IGH_basic_stat2[!(IGH_basic_stat2$Vaccines == "Ad26" & IGH_basic_stat2$Visit == "D36" ),]
+
+
+table(IGH_basic_stat3$Vaccines)
+# Ad26        Ad26.MVA
+# 2             117  
+
+# dim(IGH_basic_stat3)
+# #[1] 119  18
+
+IGH_basic_stat3$Study_Visit <- ifelse(IGH_basic_stat3$Visit=="D1", as.character(IGH_basic_stat3$Visit), ifelse(IGH_basic_stat3$Visit=="D11", as.character(IGH_basic_stat3$Visit), "D36/D64/D92"))
+
+
+IgH_seq_counts <- ggplot (IGH_basic_stat3, aes(y=count, x=Study_Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(IGH_basic_stat3$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= "Count", x= "Vaccine status",  subtitle= "")+ stat_compare_means(label = "p.signif",method = "wilcox.test", paired = F,comparisons = list(c("D1", "D11"),c("D1", "D36/D64/D92"),c("D11", "D36/D64/D92") ))+ geom_point(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="median", shape=21, size=2, stroke =1) # this is a sum of the cloneCount column of the mixcr output
+
+IgH_seq_diversity <- ggplot (IGH_basic_stat3, aes(y=diversity, x=Study_Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(IGH_basic_stat3$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= "Diversity", x= "Vaccine status",  subtitle= "")+ stat_compare_means(label = "p.signif",method = "wilcox.test", paired = F,comparisons = list(c("D1", "D11"),c("D1", "D36/D64/D92"),c("D11", "D36/D64/D92") ))+ geom_point(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="median", shape=21, size=2, stroke =1)
+
+IgH_seq_geomean_frequency <- ggplot (IGH_basic_stat3, aes(y=geomean_frequency, x=Study_Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(IGH_basic_stat3$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= "Geomean clonotype frequency", x= "Vaccine status",  subtitle= "")+ stat_compare_means(label = "p.signif",method = "wilcox.test", paired = F,comparisons = list(c("D1", "D11"),c("D1", "D36/D64/D92"),c("D11", "D36/D64/D92") ))+ geom_point(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="median", shape=21, size=2, stroke =1)
+
+
+IgH_seq_nc_diversity <- ggplot (IGH_basic_stat3, aes(y= nc_diversity, x=Study_Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(IGH_basic_stat3$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= "non-coding diversity", x= "Vaccine status",  subtitle= "")+ stat_compare_means(label = "p.signif",method = "wilcox.test", paired = F,comparisons = list(c("D1", "D11"),c("D1", "D36/D64/D92"),c("D11", "D36/D64/D92") ))+ geom_point(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="median", shape=21, size=2, stroke =1)
+
+
+
+png(paste0("/.../IGH_seq_properties_group_",Sys.Date(),".png"))
+
+grid.arrange(IgH_seq_counts,IgH_seq_geomean_frequency, IgH_seq_diversity,IgH_seq_nc_diversity, ncol=2)
+
+dev.off()
+
+
+# CDR properties 
+
+IgH_cdr3_length_dist <- ggplot (IGH_basic_stat3, aes(x=mean_cdr3nt_length, color=Study_Visit)) + geom_density() + theme_bw() + labs(y= "CDR3 length (nt)", x= "Vaccine status",  subtitle= "")+ scale_color_manual(values=c("#7aa444", "#946fc7", "#c57b3d")[factor(IGH_basic_stat3$Study_Visit)])
+
+
+IgH_cdr3_mean_insert_size <- ggplot (IGH_basic_stat3, aes(y=mean_insert_size, x=Study_Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(IGH_basic_stat3$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= "CDR3 Mean insert size ", x= "Vaccine status",  subtitle= "") + stat_compare_means(label = "p.signif",method = "wilcox.test", paired = F,comparisons = list(c("D1", "D11"),c("D1", "D36/D64/D92"),c("D11", "D36/D64/D92") ))+ geom_point(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="median", shape=21, size=2, stroke =1)
+#  Mean number of inserted random nucleotides in CDR3 sequence. 
+
+IgH_cdr3_mean_ndn_size <- ggplot (IGH_basic_stat3, aes(y=mean_ndn_size, x=Study_Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(IGH_basic_stat3$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= "CDR3 mean ndn size", x= "Vaccine status",  subtitle= "") + stat_compare_means(label = "p.signif",method = "wilcox.test", paired = F,comparisons = list(c("D1", "D11"),c("D1", "D36/D64/D92"),c("D11", "D36/D64/D92") ))+ geom_point(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="median", shape=21, size=2, stroke =1)
+# Mean number of nucleotides that lie between V and J segment sequences in CDR3
+
+
+IgH_cdr3_convergence <- ggplot (IGH_basic_stat3, aes(y=convergence, x=Study_Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(IGH_basic_stat3$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= "CDR3 covergence", x= "Vaccine status",  subtitle= "")+ stat_compare_means(label = "p.signif",method = "wilcox.test", paired = F,comparisons = list(c("D1", "D11"),c("D1", "D36/D64/D92"),c("D11", "D36/D64/D92") ))+ geom_point(stat = "summary", na.rm = TRUE, position = "dodge", fun.y="median", shape=21, size=2, stroke =1)
+
+
+
+png(paste0("/.../IGH_CDR3_properties_group_",Sys.Date(),".png"))
+
+grid.arrange(IgH_cdr3_length_dist,IgH_cdr3_mean_insert_size, IgH_cdr3_mean_ndn_size,IgH_cdr3_convergence, ncol=2)
+
+dev.off()
+
+
+# CDRH3 sequence ----
+
+for (i in list.files('//mnt/sdb/EBOVAC/VDJ_alignment/Clones/', pattern="*_IGH.txt")) {
+  assign(gsub("-", ".", paste0("IGH",substr(i, 7,12))), as.data.frame(ddply (read.table(paste0("//mnt/sdb/EBOVAC/VDJ_alignment/Clones/", i) , sep = "\t", header=T), "aaSeqCDR3", summarize, count= sum(cloneCount))))
+}
+
+IgH_CDR3 <- mget(ls()[grep("IGH", ls())])
+
+
+for (i in names(IgH_CDR3)) {
+  IgH_CDR3[[i]]$sample <- rep(i, times= nrow(IgH_CDR3[[i]]))
+}
+
+IgH_CDR3_m <- rbindlist(IgH_CDR3, use.names=TRUE, fill=TRUE, idcol=NULL)
+
+IgH_CDR3_w <- as.data.frame(dcast(IgH_CDR3_m, sample ~ as.character(aaSeqCDR3), value.var= "count"))
+
+dim(IgH_CDR3_w)
+# 126 25194
+#head(IgH_CDR3_w[,c(1:10)])
+
+IgH_CDR3_w[,c(2:ncol(IgH_CDR3_w))] = apply(IgH_CDR3_w[,c(2:ncol(IgH_CDR3_w))], 2, function(x) as.numeric(as.character(x)))
+
+
+
+EBOVAC_meta_data <- sample_info[sample_info$Vaccines != "Placebo.Placebo" ,]
+
+EBOVAC_meta_data3 <- EBOVAC_meta_data[!(EBOVAC_meta_data$Vaccines == "Ad26" & EBOVAC_meta_data$Visit == "D36" ),]
+rownames(EBOVAC_meta_data3) <- gsub("WTCHG_", "",EBOVAC_meta_data3$WTCHG_ID)
+
+table(factor(EBOVAC_meta_data3$Vaccines))
+# Ad26        Ad26.MVA
+# 2             117
+table(EBOVAC_meta_data3$Visit)
+# D1 D11 D36 D64 D92 
+# 40  40  11  15  13 
+
+IgH_CDR3_t <- t(IgH_CDR3_w)[]
+
+colnames(IgH_CDR3_t) <-IgH_CDR3_t["sample",]
+
+colnames(IgH_CDR3_t) <- gsub("IGH","",colnames(IgH_CDR3_t))
+colnames(IgH_CDR3_v)
+
+IgH_CDR3_v <- IgH_CDR3_t[,colnames(IgH_CDR3_t) %in% rownames(EBOVAC_meta_data3)]
+
+EBOVAC_meta_data_ordered <- EBOVAC_meta_data3[colnames(IgH_CDR3_v),]
+
+identical(rownames(EBOVAC_meta_data_ordered), colnames(IgH_CDR3_v))
+dim(EBOVAC_meta_data_ordered)
+# [1] 119  7
+
+
+IgH_CDR3_vv <- IgH_CDR3[names(IgH_CDR3) %in% paste0("IGH",colnames(IgH_CDR3_v))]
+
+names(IgH_CDR3_vv) <- EBOVAC_meta_data_ordered$title
+
+# CTTRYYYYGMDVW was shared between individuals (i.e., shared sequences at baseline are very rare)
+# Allow one mismatch allow a hamming distance of 1 (one single change and length or CDR3 has to be the same)     
+b100 <- NULL
+
+for (i in names(IgH_CDR3_vv))
+{
+  b100[i] <- sort(stringdist("CTTRYYYYGMDVW",IgH_CDR3_vv[[i]][,"aaSeqCDR3"], method = "hamming"))
+  
+}
+
+present_hamming <-sort(b100)
+
+
+hist(b100) # there are 13 CDR3 with a hamming distance of 1 from CTTRYYYYGMDVW, all of which are post-vaccination
+
+b1_h <- NULL
+
+for (i in names(IgH_CDR3_vv))
+{
+  b1_h[i] <- ifelse(is.integer(IgH_CDR3_vv[[i]][stringdist("CTTRYYYYGMDVW", IgH_CDR3_vv[[i]][,"aaSeqCDR3"],method = "hamming") < 2,"count"]) =="FALSE", 0, sum(IgH_CDR3_vv[[i]][stringdist("CTTRYYYYGMDVW", IgH_CDR3_vv[[i]][,"aaSeqCDR3"], method = "hamming") < 2,"count"]))
+  
+}
+
+CTTRYYYYGMDVW_hamming_1_count <- as.data.frame(sort(b1_h))
+
+rownames(CTTRYYYYGMDVW_hamming_1_count)
+
+colnames(CTTRYYYYGMDVW_hamming_1_count) <- "CTTRYYYYGMDVW_Hamming_dist_1_count"
+
+EBOVAC_meta_data_ordered2 <- merge( EBOVAC_meta_data_ordered, CTTRYYYYGMDVW_hamming_1_count, by.x = "title", by.y = "row.names", all=F)
+
+
+sum(as.numeric(EBOVAC_meta_data_ordered2$CTTRYYYYGMDVW_Hamming_dist_1_count) >0)
+# 13
+
+# EBOVAC_meta_data_ordered2$title[as.numeric(EBOVAC_meta_data_ordered2$CTTRYYYYGMDVW_Hamming_dist_1_count) >0]
+
+# 
+png(paste0("/../IGH_CDR3_example_CTTRYYYYGMDVW_plus_1_Hamming_distance_",Sys.Date(),".png"))
+
+ggplot (EBOVAC_meta_data_ordered2, aes(y=CTTRYYYYGMDVW_Hamming_dist_1_count, x=Visit)) + geom_jitter(colour=c("#7aa444", "#946fc7", "#c57b3d","#4cab98","red")[factor(EBOVAC_meta_data_ordered2$Visit)] ,position = position_jitter(width = .15), alpha = 0.5) + theme_bw() + labs(y= " IGH CDR3 count", x= "Vaccine status",  subtitle= "CTTRYYYYGMDVW + 1 Hamming dist.")
+
+dev.off()
+
+
+
+# The properties of amino acid code of this CDR3 (plus 1 hamming distance)
+
+b1_c <- NULL
+
+for (i in  names(IgH_CDR3_vv))
+{
+  b1_c[[i]] <-  as.list(as.character(IgH_CDR3_vv[[i]][stringdist("CTTRYYYYGMDVW", IgH_CDR3_vv[[i]][,"aaSeqCDR3"], method = "hamming") < 2,"aaSeqCDR3"]))
+  
+}
+
+CDR3_seq_up_to_1_Hamming_dist <- c(as.character(unlist(b1_c)))
+
+# see https://omarwagih.github.io/ggseqlogo/ for logo plot
+
+png(paste0("/.../IGH_CDR3_properties_of_amino_acides_CTTRYYYYGMDVW_plus_1_Hamming_distance_",Sys.Date(),".png"))
+
+ggplot() +
+  geom_logo( CDR3_seq_up_to_1_Hamming_dist, method = 'prob') + theme_logo()
+
+dev.off()
