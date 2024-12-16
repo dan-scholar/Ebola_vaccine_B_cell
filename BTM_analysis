@@ -1,0 +1,81 @@
+# Blood transcriptional modules ...
+library(tmod)
+packageVersion("tmod")
+# [1] ‘0.50.13’
+
+
+# Combined data ranked on LR ----
+# Analysis of order of genes rank genes on LR (from pre-vac to post-vac)
+
+
+setwd("/.../filter1/")
+list.files()
+# [1] "EBOVACD1_D11_all_groups_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt"     
+# [2] "EBOVACD1_D36_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt"                
+# [3] "EBOVACD1_D64_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt"                
+# [4] "EBOVACD1_D7_boost_all_groups_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt"
+# [5] "EBOVACD1_D92_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt"                
+# [6] "EBOVACD11_vs_D7_boost_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt" 
+
+# 
+for (i in c("D11_vs_D7_boost", "D1_D11_all_groups", "D1_D36", "D1_D64","D1_D7_boost_all_groups", "D1_D92" )){
+  
+  assign(paste0("CERN_Combined_",i,"_EBOVAC"),tmodCERNOtest(read.table(paste0("EBOVAC", i, "_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt"), header =T)$gene_name, qval = 0.05))
+  
+  pdf(paste0("/.../Top10_CERN_Combined_test",i,"_EBOVAC.pdf"), onefile = T)
+  par(xpd=TRUE, mar=c(5,5,5,5))
+  evidencePlot(read.table(paste0("EBOVAC", i, "_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt"), header =T)$gene_name,  c(subset(get(paste0("CERN_Combined_",i,"_EBOVAC"))[1:10,], !is.na(ID))$ID), col = c("#6587cd","#6ab84c","#9962c9","#c6aa3d","#c85c9a","#4bb194","#d05c2c","#6d883f","#cc565f","#b47d46"))
+  legend(19064.69, 0.015, legend=c(subset(get(paste0("CERN_Combined_",i,"_EBOVAC"))[1:10,], !is.na(ID))$ID ), border = FALSE, bty='n', cex = 0.5, y.intersp = ifelse(i=="7d",1.9 ,0.95))
+  dev.off() # Evidence curves
+  
+  
+ write.table(get(paste0("CERN_Combined_",i,"_EBOVAC")),paste0("/.../Table_CERN_Combined_",i,"_EBOVAC.txt"), sep="\t", row.names = FALSE) # Table of all significant modules
+  
+}
+datasets <- list(read.table("EBOVACD1_D11_all_groups_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt", header =T)[,c("gene_id","gene_name","logFC", "adj.P.Val")],read.table("EBOVACD1_D7_boost_all_groups_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt", header =T)[,c("gene_id","gene_name","logFC", "adj.P.Val")],read.table("EBOVACD1_D36_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt", header =T)[,c("gene_id","gene_name","logFC", "adj.P.Val")],read.table("EBOVACD1_D64_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt", header =T)[,c("gene_id","gene_name","logFC", "adj.P.Val")],read.table("EBOVACD1_D92_Table_of_collapsed_gene_results_STAR_HTSeq_limma_paired_grch38_2020-05-07.txt", header =T)[,c("gene_id","gene_name","logFC", "adj.P.Val")])
+
+
+
+for (i in seq_along(datasets)) {
+  for (j in seq_along(colnames(datasets[[i]]))) {
+    if (colnames(datasets[[i]])[j] != "gene_id") {
+      colnames(datasets[[i]])[j] <- paste( "Timepoint",i, colnames(datasets[[i]])[j],sep = ".")
+    }
+  }
+}
+
+
+dff <- Reduce(function(x, y) merge(x, y, all = TRUE, by = "gene_id"), datasets)
+
+
+df_unique <- dff[!duplicated(dff$Timepoint.1.gene_name),]
+
+df <- cbind(df_unique$Timepoint.1.gene_name, df_unique[,grep("gene_", colnames(df_unique), invert = T)])
+
+colnames(df)
+
+
+colnames(df) <- c("gene_name", "Day11_prime_logFC","Day11_prime_FDR", "Combined_7_days_postboost_logFC","Combined_7_days_postboost_FDR", "Day36_group1_logFC","Day36_group1_FDR", "Day64_group2_logFC","Day64_group2_FDR","Day92_group3_logFC","Day92_group3_FDR")
+
+background <- c(as.character(df$gene_name))
+dim(df)
+# 13234    11
+
+
+
+pietest <- tmodDecideTests(df$gene_name, lfc =df[,c("Day11_prime_logFC","Combined_7_days_postboost_logFC")], lfc.thr = 0.3219281) # get logFC for all the genes at each time point. lfc.thr is log2(1.25)
+
+
+
+list_of_LR_ordered_obj <- list(get("CERN_Combined_D11_vs_D7_boost_EBOVAC"),get("CERN_Combined_D1_D11_all_groups_EBOVAC"),get("CERN_Combined_D1_D36_EBOVAC"),get("CERN_Combined_D1_D64_EBOVAC"), get("CERN_Combined_D1_D7_boost_all_groups_EBOVAC"), get("CERN_Combined_D1_D92_EBOVAC")) # create a list with the order of the genes (ranked by LR)
+
+names(list_of_LR_ordered_obj) <- c("D11_vs_D7_boost_EBOVAC","D1_D11_all_groups_EBOVAC", "D1_D36_EBOVAC","D1_D64_EBOVAC", "D1_D7_boost_all_groups_EBOVAC","D1_D92_EBOVAC" )# name the objects the same as the pietest 
+
+
+names(pietest) <- c("D1_D11_all_groups_EBOVAC", "D1_D7_boost_all_groups_EBOVAC")
+
+pdf(paste0("/.../Panel_pie_sep.grp.P0.001__pie1.25FC_plot_CERN_LR_ordered_EBOVAC_test.pdf"), onefile = T)
+par(xpd=TRUE)
+tmodPanelPlot(list_of_LR_ordered_obj[c(2,5)], pie =pietest ,pie.style = "pie", text.cex = 0.7, pval.thr =0.001, col.labels = c("First dose", "Second dose"), legend.style = "tall", plot.cex = 1.1, clust = "qval")
+dev.off() # Panel plot, but also including a Piechart of up/downregulated genes (just based on abs(FC) > 1.25)
+
